@@ -1,0 +1,174 @@
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <FS.h>
+
+const char* ssid = "TachiLove";
+const char* password = "tachi523";
+
+WiFiServer server(80);
+const char WiFiAPPSK[] = "sparkfun";
+
+void setup()
+{
+    Serial.begin(115200);
+    WiFi.mode(WIFI_AP);
+    uint8_t mac[WL_MAC_ADDR_LENGTH];
+    WiFi.softAPmacAddress(mac);
+    String macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) + String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
+    macID.toUpperCase();
+    String AP_NameString = "ESP8266 Thing " + macID;
+    char AP_NameChar[AP_NameString.length() + 1];
+    memset(AP_NameChar, 0, AP_NameString.length() + 1);
+    server.begin();
+
+    for (int i = 0; i < AP_NameString.length(); i++)
+    {
+        AP_NameChar[i] = AP_NameString.charAt(i);
+    }
+
+    WiFi.softAP(AP_NameChar, WiFiAPPSK);
+    Serial.println();
+
+    Serial.printf("Connecting to %s ", ssid);
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println(" connected");
+
+    server.begin();
+    Serial.printf("Web server started, open %s in a web browser\n", WiFi.localIP().toString().c_str());
+}
+
+
+// prepare a web page to be send to a client (web browser)
+String prepareHtmlPage()
+{
+    SPIFFS.begin();
+    File f = SPIFFS.open("/index.html", "r");
+    char *htmlPage;
+    String htmlSkeleton("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<!DOCTYPE HTML><html>");
+    //htmlPage = (char *) malloc(htmlSkeleton.length() + 1);
+    htmlPage = (char *) htmlSkeleton.c_str();
+
+    if (!f) {
+        Serial.println("file open failed");
+    } else {
+        // Include the null terminator
+        htmlPage = (char *) realloc(htmlPage, htmlSkeleton.length() + (f.size() + 1));
+        f.readBytes(htmlPage + htmlSkeleton.length(), f.size());
+        *(htmlPage + htmlSkeleton.length() + f.size()) = '\0';
+        //string str(html, f.size());
+    }
+
+    String closeHtml("</html>\r\n");
+    htmlPage = (char *) realloc(htmlPage, htmlSkeleton.length() + f.size() + closeHtml.length() + 1);
+    strcat(htmlPage + htmlSkeleton.length() + f.size(), closeHtml.c_str());
+    *(htmlPage + htmlSkeleton.length() + f.size() + closeHtml.length()) = '\0';
+    String ret_val(htmlPage);
+    free(htmlPage);
+    SPIFFS.end();
+
+    return ret_val;
+}
+
+
+void loop()
+{
+    WiFiClient client = server.available(); 
+    // wait for a client (web browser) to connect
+    if (client)
+    {
+        Serial.println("\n[Client connected]");
+        while (client.connected())
+        {
+            // read line by line what the client (web browser) is requesting
+            if (client.available())
+            {
+                String line = client.readStringUntil('\r');
+                Serial.print(line);
+                // wait for end of client's request, that is marked with an empty line
+                if (line.length() == 1 && line[0] == '\n')
+                {
+                    client.println(prepareHtmlPage());
+                    break;
+                }
+            }
+        }
+        delay(1); // give the web browser time to receive the data
+
+        // close the connection:
+        client.stop();
+        Serial.println("[Client disonnected]");
+    }
+}
+/*const char *ssid = "TachiLove";
+  const char *password = "tachi523";
+
+  const char *host = "wifitest.adafruit.com";
+
+  void setup()
+  {
+  Serial.begin(115200);
+  delay(100);
+
+// We start by connecting to a WiFi network
+
+Serial.println();
+Serial.println();
+Serial.print("Connecting to ");
+Serial.println(ssid);
+
+WiFi.begin(ssid, password);
+
+while (WiFi.status() != WL_CONNECTED) {
+delay(500);
+Serial.print(".");
+}
+
+Serial.println("");
+Serial.println("WiFi connected");
+Serial.println("IP address: ");
+Serial.println(WiFi.localIP());
+}
+
+int value = 0;
+
+void loop()
+{
+delay(5000);
+++value;
+
+Serial.print("connecting to ");
+Serial.println(host);
+
+// Use WiFiClient class to create TCP connections
+WiFiClient client;
+const int httpPort = 80;
+if (!client.connect(host, httpPort)) {
+Serial.println("connection failed");
+return;
+}
+
+// We now create a URI for the request
+String url = "/testwifi/index.html";
+Serial.print("Requesting URL: ");
+Serial.println(url);
+
+// This will send the request to the server
+client.print(String("GET ") + url + " HTTP/1.1\r\n" + "Host: " + host +
+"\r\n" + "Connection: close\r\n\r\n");
+delay(500);
+
+// Read all the lines of the reply from server and pring them to Serial
+while (client.available()) {
+String line = client.readStringUntil('\r');
+Serial.print(line);
+}
+
+Serial.println();
+Serial.println("closing connection");
+}
+*/
