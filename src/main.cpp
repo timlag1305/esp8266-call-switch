@@ -11,11 +11,11 @@ char server[] = "maker.ifttt.com";
 WiFiClient client;
 int trigger = 0;
 
-String ifttt_trigger(String KEY ,String EVENT)
+String iftttTrigger(String KEY, String EVENT)
 {
     String name = "";
     client.stop();
-    if(client.connect(server,80))
+    if (client.connect(server,80))
     {
 	String PostData = "{\"value1\" : \"testValue\", \"value2\" : \"Hello\", \"value3\" : \"World!\" }";
 	Serial.println("Connected to server... Getting name");
@@ -46,9 +46,9 @@ String ifttt_trigger(String KEY ,String EVENT)
     long timeOut = 4000; //capture response from the server
     long lastTime = millis();
 
-    while((millis() - lastTime) < timeOut) //wait for incoming response 
+    while ((millis() - lastTime) < timeOut) //wait for incoming response 
     {
-	while(client.available())           //characters incoming from server
+	while (client.available())           //characters incoming from server
 	{
 	    char c = client.read();          //read characters
 	    Serial.write(c);
@@ -79,7 +79,7 @@ void printWifiStatus() {
 }
 
 void sendRequest(){
-    if(trigger == 0){
+    if (trigger == 0){
 	trigger = 1;
     }
 }
@@ -91,7 +91,7 @@ void setup() {
     Serial.println(ssid);
 
     WiFi.begin(ssid,password);
-    while(WiFi.status() != WL_CONNECTED)
+    while (WiFi.status() != WL_CONNECTED)
     {
 	Serial.print(".");
 	delay(300);
@@ -99,7 +99,7 @@ void setup() {
     Serial.println("\nYou are connected to the network");
     Serial.println("Waiting for an IP Address");
 
-    while(WiFi.localIP() == INADDR_NONE)
+    while (WiFi.localIP() == INADDR_NONE)
     {
 	Serial.print(".");
 	delay(300); 
@@ -119,9 +119,9 @@ void loop() {
     // put your main code here, to run repeatedly:
     String IFTTT_KEY  = "";
     String IFTTT_EVENT = "button_pressed";   //IFTTT maker event name 
-    if(trigger == 1)
+    if (trigger == 1)
     {
-	ifttt_trigger(IFTTT_KEY,IFTTT_EVENT);
+	iftttTrigger(IFTTT_KEY,IFTTT_EVENT);
 	Serial.println("Push The Button");
 	trigger = 0;
     }
