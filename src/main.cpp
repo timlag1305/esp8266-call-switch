@@ -1,59 +1,128 @@
-#include <ESP8266WebServer.h>
+#ifndef __CC3200R1M1RGC__
+#include <SPI.h>
+#endif
 #include <ESP8266WiFi.h>
-#include <FS.h>
 #include <WiFiClient.h>
 
-ESP8266WebServer server(80);
-File htmlFile;
-File cssFile;
+char ssid[] = "";
+char password[] = "";
+char server[] = "maker.ifttt.com";
 
-void handleRoot()
-{
-    server.streamFile(htmlFile, "text/html");
-}
+WiFiClient client;
+int trigger = 0;
 
-void handleRequest()
+String ifttt_trigger(String KEY ,String EVENT)
 {
-    Serial.println("Request received!");
-    server.send(200, "text/html", "");
-    if (server.args() > 0)
+    String name = "";
+    client.stop();
+    if(client.connect(server,80))
     {
-        Serial.println("We have data!");
-        for (uint8_t i = 0; i < server.args(); i++)
-        {
-            Serial.printf("Name: %s\n", server.argName(i).c_str());
-        }
+	String PostData = "{\"value1\" : \"testValue\", \"value2\" : \"Hello\", \"value3\" : \"World!\" }";
+	Serial.println("Connected to server... Getting name");
+	String request = "POST /trigger/";   //send HTTP PUT request
+	request += EVENT;
+	request += "/with/key/";
+	request += KEY;
+	request += " HTTP/1.1";
+
+	Serial.println(request);    
+	client.println(request);
+	client.println("Host: maker.ifttt.com");
+	client.println("User-Agent: Energia/1.1");
+	client.println("Connection: close");
+	client.println("Content-Type: application/json");
+	client.print("Content-Length: ");
+	client.println(PostData.length());
+	client.println();
+	client.println(PostData);
+	client.println();
     }
-}
-
-void setup()
-{
-    delay(1000);
-    Serial.begin(115200);
-    SPIFFS.begin();
-    htmlFile = SPIFFS.open("/index.html", "r");
-
-    if (!htmlFile)
+    else
     {
-        Serial.println("File open failed");
+	Serial.println("Connection Failed");
+	return "FAIL";
     }
 
+    long timeOut = 4000; //capture response from the server
+    long lastTime = millis();
+
+    while((millis() - lastTime) < timeOut) //wait for incoming response 
+    {
+	while(client.available())           //characters incoming from server
+	{
+	    char c = client.read();          //read characters
+	    Serial.write(c);
+	}
+    }
     Serial.println();
+    Serial.println("Request Complete!!");
+    //return name received from sever
+    return "SUCCESS";
 
-    Serial.println("Configuring access point...");
-    Serial.println("Setting soft-AP ... ");
-    WiFi.softAP("test");
-
-    IPAddress ip = WiFi.softAPIP();
-    Serial.print("AP IP address: ");
-    Serial.println(ip);
-    server.on("/", handleRoot);
-    server.on("/request", handleRequest);
-    server.begin();
-    Serial.println("HTTP server started");
 }
 
-void loop()
-{
-    server.handleClient();
+void printWifiStatus() {
+    // print the SSID of the network you're attached to:
+    Serial.print("SSID: ");
+    Serial.println(WiFi.SSID());
+
+    // print your WiFi IP address:
+    IPAddress ip = WiFi.localIP();
+    Serial.print("IP Address: ");
+    Serial.println(ip);
+
+    // print the received signal strength:
+    long rssi = WiFi.RSSI();
+    Serial.print("signal strength (RSSI):");
+    Serial.print(rssi);
+    Serial.println("dBm");
+}
+
+void sendRequest(){
+    if(trigger == 0){
+	trigger = 1;
+    }
+}
+void setup() {
+    // put your setup code here, to run once:
+    Serial.begin(115200);
+    delay(100);
+    Serial.print("Attempting to connect to a network named: ");
+    Serial.println(ssid);
+
+    WiFi.begin(ssid,password);
+    while(WiFi.status() != WL_CONNECTED)
+    {
+	Serial.print(".");
+	delay(300);
+    }
+    Serial.println("\nYou are connected to the network");
+    Serial.println("Waiting for an IP Address");
+
+    while(WiFi.localIP() == INADDR_NONE)
+    {
+	Serial.print(".");
+	delay(300); 
+
+    }
+
+    Serial.println("\nIP Address obtained");
+    printWifiStatus();
+
+    pinMode(0,INPUT_PULLUP);
+    attachInterrupt(0,sendRequest,FALLING);
+    Serial.println("Push the Button!");
+
+}
+
+void loop() {
+    // put your main code here, to run repeatedly:
+    String IFTTT_KEY  = "";
+    String IFTTT_EVENT = "button_pressed";   //IFTTT maker event name 
+    if(trigger == 1)
+    {
+	ifttt_trigger(IFTTT_KEY,IFTTT_EVENT);
+	Serial.println("Push The Button");
+	trigger = 0;
+    }
 }
