@@ -6,7 +6,7 @@
 
 char ssid[] = "";
 char password[] = "";
-char server[] = "maker.ifttt.com";
+char server[] = "maker.ifttt.com"; 
 
 WiFiClient client;
 int trigger = 0;
@@ -118,7 +118,7 @@ void setup() {
 void loop() {
     // put your main code here, to run repeatedly:
     String IFTTT_KEY  = "";
-    String IFTTT_EVENT = "button_pressed";   //IFTTT maker event name 
+    String IFTTT_EVENT = "send_notification";   //IFTTT maker event name 
     if (trigger == 1)
     {
 	iftttTrigger(IFTTT_KEY,IFTTT_EVENT);
