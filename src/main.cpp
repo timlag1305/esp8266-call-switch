@@ -1,16 +1,16 @@
-#include <ESP8266WiFi.h>
-#include <DNSServer.h>
-#include <ESP8266WebServer.h>
+#include <string>
+#include <FS.h>
+#include <SPI.h>
 #include <WiFiManager.h>     
+
+using namespace std;
 
 void setup()
 {
-    Serial.begin(115200);
     WiFiManager wifiManager;
-    WiFiManagerParameter roomNum("room_num", "Room Number", "", 4);
-    wifiManager.addParameter(&roomNum);
-    wifiManager.startConfigPortal("ESP_AP");
-    int room = (int) roomNum.getValue();
+    Serial.begin(115200);
+
+    wifiManager.autoConnect();
 }
 
 void loop()
