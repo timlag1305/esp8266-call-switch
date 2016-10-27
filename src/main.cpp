@@ -10,35 +10,30 @@
 #define HOLD_CLICK 3
 #define CLICK_DELAY 500
 #define HOLD_LENGTH 1000
+#define API_KEY "Your IFTTT API KEY"
+#define SERVER "maker.ifttt.com"
+#define EVENT "The name of the IFTTT event"
 
 using namespace std;
 
-char ssid[] = "";
-char password[] = "";
-char server[] = "maker.ifttt.com";
-String IFTTT_KEY  = "";
-String ifttt_event = "button_pressed";   //IFTTT maker event name 
-
 WiFiClient client;
-int startTime = 0;
-int prevStartTime = 0;
-int endTime = 0;
-int trigger = 0;
+uint32_t startTime = 0;
+uint32_t prevStartTime = 0;
 uint32_t currentTime;
 uint8_t clickType = 0;
 
-String iftttTrigger(String KEY, String EVENT)
+String iftttTrigger(String message)
 {
     String name = "";
     client.stop();
-    if (client.connect(server, 80))
+    if (client.connect(SERVER, 80))
     {
-	String PostData = "{\"value1\" : \"testValue\", \"value2\" : \"Hello\", \"value3\" : \"World!\" }";
+	String postData = "{\"value1\": \"" + message + "\"}";
 	Serial.println("Connected to server... Getting name");
 	String request = "POST /trigger/";   //send HTTP PUT request
 	request += EVENT;
 	request += "/with/key/";
-	request += KEY;
+	request += API_KEY;
 	request += " HTTP/1.1";
 
 	Serial.println(request);    
@@ -48,9 +43,9 @@ String iftttTrigger(String KEY, String EVENT)
 	client.println("Connection: close");
 	client.println("Content-Type: application/json");
 	client.print("Content-Length: ");
-	client.println(PostData.length());
+	client.println(postData.length());
 	client.println();
-	client.println(PostData);
+	client.println(postData);
 	client.println();
     }
     else
@@ -103,16 +98,10 @@ void readPin()
 void setup() {
     // put your setup code here, to run once:
     Serial.begin(115200);
-    /*WiFi.mode(WIFI_STA);
+    WiFi.mode(WIFI_STA);
     WiFiManager wifiManager;
-    WiFiManagerParameter message_one("message_one", "Single click message", "", 100);
-    WiFiManagerParameter message_two("message_two", "Double click message", "", 100);
-
-    wifiManager.addParameter(&message_one);
-    wifiManager.addParameter(&message_two);
-
-    wifiManager.startConfigPortal("ESP8266WiFi");
-    Serial.println("Push the Button!");*/
+    wifiManager.autoConnect();
+    Serial.println("Push the Button!");
     pinMode(0, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(0), readPin, CHANGE);
 }
@@ -123,30 +112,20 @@ void loop() {
     // Check if the button is up and it has been pressed more than 500ms ago
     if (clickType == DOUBLE_CLICK)
     {
+	iftttTrigger("You double clicked the button!");
 	Serial.println("Double press");
 	clickType = 0;
     }
     else if (clickType == SINGLE_CLICK && currentTime - startTime > CLICK_DELAY)
     {
+	iftttTrigger("You single clicked the button!");
 	Serial.println("Single press");
 	clickType = 0;
     }
     else if (clickType == HOLD_CLICK && currentTime - startTime > HOLD_LENGTH)
     {
+	iftttTrigger("You pressed and held the button!");
 	Serial.println("Button Hold");
 	clickType = 0;
     }
-
-    /*if (trigger != 0)
-    {
-        // This might not work
-        if (trigger == SINGLE_CLICK)
-        {
-            delay(500);
-        }
-
-        iftttTrigger(IFTTT_KEY, ifttt_event);
-        Serial.println("Push The Button");
-        trigger = 0;
-    }*/
 }
