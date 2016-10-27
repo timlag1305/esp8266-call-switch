@@ -8,8 +8,8 @@
 #define SINGLE_CLICK 1
 #define DOUBLE_CLICK 2
 #define HOLD_CLICK 3
-#define CLICK_DELAY 500
-#define HOLD_LENGTH 1000
+#define CLICK_DELAY 500		// Max delay between double clicks in ms
+#define HOLD_LENGTH 1000	// Button hold length in ms
 #define API_KEY "Your IFTTT API KEY"
 #define SERVER "maker.ifttt.com"
 #define EVENT "The name of the IFTTT event"
@@ -22,7 +22,9 @@ uint32_t prevStartTime = 0;
 uint32_t currentTime;
 uint8_t clickType = 0;
 
-String iftttTrigger(String message)
+// We could revert this to return a status but since I don't have any idea on
+// how to gracefully handle a failure, I think I'm going to keep it as void
+void iftttTrigger(String message)
 {
     String name = "";
     client.stop();
@@ -51,7 +53,6 @@ String iftttTrigger(String message)
     else
     {
 	Serial.println("Connection Failed");
-	return "FAIL";
     }
 
     long timeOut = 4000; //capture response from the server
@@ -67,9 +68,6 @@ String iftttTrigger(String message)
     }
     Serial.println();
     Serial.println("Request Complete!!");
-    //return name received from sever
-    return "SUCCESS";
-
 }
 
 void readPin()
@@ -109,7 +107,6 @@ void setup() {
 void loop() {
     // put your main code here, to run repeatedly:
     currentTime = millis();
-    // Check if the button is up and it has been pressed more than 500ms ago
     if (clickType == DOUBLE_CLICK)
     {
 	iftttTrigger("You double clicked the button!");
