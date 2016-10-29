@@ -1,4 +1,4 @@
-#include<Arduino.h>
+#include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <FS.h>
 #include <SPI.h>
@@ -33,9 +33,9 @@ char holdClickMessage[141];
 
 // We could revert this to return a status but since I don't have any idea on
 // how to gracefully handle a failure, I think I'm going to keep it as void
-void iftttTrigger(String message)
+void sendMessage(char message[])
 {
-	String name = "";
+	char uid[11];
 	client.stop();
 
 	if (client.connect(SERVER, HTTPS_PORT))
@@ -43,26 +43,26 @@ void iftttTrigger(String message)
 		Serial.println("Connected!");
 		// Don't send information if the certificates don't match!
 		if (client.verify(FINGERPRINT, SERVER)) {
+			sprintf(uid, "%d", random(UINT_MAX));
 			Serial.println("certificate matches");
-			String postData =
-				String("{") +
+			string postData(string("{") +
 				"\"message\": {" +
-				"\"source_guid\": \"" + random(UINT_MAX) + "\"," +
+				"\"source_guid\": \"" + uid + "\"," +
 				"\"text\": \"" + message + "\"" +
 				"}" +
-				"}";
-			String request = "POST /v3/groups/24907887/messages?token=" API_KEY;   //send HTTP POST request
+				"}");
+			string request("POST /v3/groups/24907887/messages?token=" API_KEY);   //send HTTP POST request
 			request += " HTTP/1.1";
 
-			Serial.println(request);    
+			Serial.println(request.c_str());    
 			Serial.println(message);
-			client.println(request);
+			client.println(request.c_str());
 			client.println("Host: api.groupme.com");
 			client.println("Content-Type: application/json");
 			client.print("Content-Length: ");
 			client.println(postData.length());
 			client.println();
-			client.println(postData);
+			client.println(postData.c_str());
 			client.println();
 			long timeOut = 4000; //capture response from the server
 			long lastTime = millis();
@@ -154,19 +154,19 @@ void loop() {
 	currentTime = millis();
 	if (clickType == DOUBLE_CLICK)
 	{
-		iftttTrigger(doubleClickMessage);
+		sendMessage(doubleClickMessage);
 		Serial.println("Double press");
 		clickType = 0;
 	}
 	else if (clickType == SINGLE_CLICK && currentTime - startTime > CLICK_DELAY)
 	{
-		iftttTrigger(singleClickMessage);
+		sendMessage(singleClickMessage);
 		Serial.println("Single press");
 		clickType = 0;
 	}
 	else if (clickType == HOLD_CLICK && currentTime - startTime > HOLD_LENGTH)
 	{
-		iftttTrigger(holdClickMessage);
+		sendMessage(holdClickMessage);
 		Serial.println("Button Hold");
 		clickType = 0;
 	}
