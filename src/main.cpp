@@ -12,9 +12,8 @@
 #define HOLD_CLICK 3
 #define CLICK_DELAY 500		// Max delay between double clicks in ms
 #define HOLD_LENGTH 1000	// Button hold length in ms
-#define API_KEY "MpgDBEjejSVNUa1kFrIqQGt0U57WYDg6M4qm1LdU"
+#define KEY_LEN 41
 #define SERVER "api.groupme.com"
-#define EVENT "The name of the IFTTT event"
 #define HTTPS_PORT 443
 // Fingerprint found using https://www.grc.com/fingerprints.htm
 #define FINGERPRINT "ED:22:CB:A5:30:A8:BB:B0:C2:27:93:90:65:CD:64:EA:EA:18:3F:0E"
@@ -30,6 +29,7 @@ uint32_t randNumber;
 char singleClickMessage[141];
 char doubleClickMessage[141];
 char holdClickMessage[141];
+char key[41];
 
 // We could revert this to return a status but since I don't have any idea on
 // how to gracefully handle a failure, I think I'm going to keep it as void
@@ -51,7 +51,7 @@ void sendMessage(char message[])
 				"\"text\": \"" + message + "\"" +
 				"}" +
 				"}");
-			string request("POST /v3/groups/24907887/messages?token=" API_KEY);   //send HTTP POST request
+			string request("POST /v3/groups/24907887/messages?token=");   //send HTTP POST request
 			request += " HTTP/1.1";
 
 			Serial.println(request.c_str());    
@@ -119,27 +119,75 @@ void setup() {
 	WiFiManager wifiManager;
 	string ssid("");
 	char id[10];
+	WiFiManagerParameter apiKey("api_key", "Access Token", "", KEY_LEN);
 	WiFiManagerParameter singleClick("s_click", "Single Click Message", "", 140);
 	WiFiManagerParameter doubleClick("d_click", "Double Click Message", "", 140);
 	WiFiManagerParameter holdClick("h_click", "Hold Click Message", "", 140);
+
 	randomSeed(analogRead(0));
+
+	// Add custom inputs for the user
+	wifiManager.addParameter(&apiKey);
 	wifiManager.addParameter(&singleClick);
 	wifiManager.addParameter(&doubleClick);
 	wifiManager.addParameter(&holdClick);
-	if (digitalRead(0) == LOW)
-	{
-		wifiManager.autoConnect();
-	}
-	else
-	{
-		sprintf(id, "%d", ESP.getChipId());
-		ssid += string("ESP") + id;
-		wifiManager.startConfigPortal(ssid.c_str(), "");
-	}
+
+	// Add custom JavaScript to get user's GroupMe groups
+	wifiManager.setCustomHeadElement(
+			"<script>"
+			"var groupsSelect;"
+			"var groupsMap = [];"
+			"function listener() {"
+			"	var groups = JSON.parse(this.responseText);"
+			"	var groupName;"
+			"	var groupId;"
+				// Remove the old groups
+			"	for (var i = 0; i < groupsSelect.length; i++) {"
+			"		groupsSelect.remove(i);"
+			"	}"
+				// Add the new groups
+			"	for (var i = 0; i < groups.length; i++) {"
+			"		groupName = groups[i].name;"
+			"		groupId = parseInt(groups[i].id);"
+			"		groupsSelect.add(groups[i].name);"
+			"		groupsMap[groupName] = groupId;"
+			"	}"
+			"}"
+			"document.addEventListener('DOMContentLoaded', function(event) {"
+			"	groupsSelect = document.createElement('select');"
+			"	var apiKey = document.getElementById('api_key');"
+			"	document.body.appendChild(groupsSelect);"
+			"	apiKey.addEventListener('input', function() {"
+			"		if (apiKey.value.length === 40) {"
+			"			var xhr = new XMLHttpRequest();"
+			"			xhr.addEventListener('load', listener);"
+			"			xhr.open('GET', 'https://api.groupme.com/v3/groups?token=' + apiKey.value);"
+			"			xhr.send();"
+			"		}"
+			"	});"
+			"});"
+			"</script>"
+	);
+
+	// XXX: Remember to change this when done debugging!
+	wifiManager.autoConnect();
+	//if (digitalRead(0) == LOW)
+	//{
+	//	wifiManager.autoConnect();
+	//}
+	// This should allow the user to force the device to go into setup mode but
+	// I haven't tested this
+	//else
+	//{
+	//	sprintf(id, "%d", ESP.getChipId());
+	//	ssid += string("ESP") + id;
+	//	wifiManager.startConfigPortal(ssid.c_str(), "");
+	//}
 
 	strcpy(singleClickMessage, singleClick.getValue());
 	strcpy(doubleClickMessage, doubleClick.getValue());
 	strcpy(holdClickMessage, holdClick.getValue());
+	strcpy(key, apiKey.getValue());
 	Serial.println(singleClickMessage);
 	Serial.println(doubleClickMessage);
 	Serial.println(holdClickMessage);
