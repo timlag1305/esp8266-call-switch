@@ -6,15 +6,27 @@
 #include <WiFiManager.h>     
 #include <climits>
 #include <string>
+#include <algorithm>
+#include <cctype>
 
+// Hardware button press definitions
 #define SINGLE_CLICK 1
 #define DOUBLE_CLICK 2
 #define HOLD_CLICK 3
 #define CLICK_DELAY 500		// Max delay between double clicks in ms
 #define HOLD_LENGTH 1000	// Button hold length in ms
+
+// GroupMe definitions
 #define KEY_LEN 41
 #define SERVER "api.groupme.com"
 #define HTTPS_PORT 443
+#define GROUPME_INDEX 20
+#define GROUPME_CREATE 21
+#define GROUPME_ADD 22
+#define GROUPME_MESSAGE 23
+#define CONTACT_ID 24
+#define CONTACT_NUM 25
+#define CONTACT_EMAIL 26
 // Fingerprint found using https://www.grc.com/fingerprints.htm
 #define FINGERPRINT "ED:22:CB:A5:30:A8:BB:B0:C2:27:93:90:65:CD:64:EA:EA:18:3F:0E"
 
@@ -25,54 +37,187 @@ uint32_t startTime = 0;
 uint32_t prevStartTime = 0;
 uint32_t currentTime;
 uint8_t clickType = 0;
+uint8_t userIdType;
 uint32_t randNumber;
 char singleClickMessage[141];
 char doubleClickMessage[141];
 char holdClickMessage[141];
 char key[41];
+string groupmeKey;
+string groupName;
+string groupDescription;
+string groupUID;
+string nickname;
+string message;
+string userId;
+bool hasDescription;
+bool shareGroup = false;
+
+struct group
+{
+	char *group_name;
+	uint32_t group_id;
+	group *next;
+};
+
+struct group *groupHead = (struct group *) malloc(sizeof(struct group));
 
 // We could revert this to return a status but since I don't have any idea on
 // how to gracefully handle a failure, I think I'm going to keep it as void
-void sendMessage(char message[])
+// XXX: Add support for various requests starting with a request to get all of the user's current groups!!!
+// TODO: Refactor so that the user can just include a number parameter
+void groupmeRequest(uint8_t requestType)
 {
 	char uid[11];
 	client.stop();
+	string request;
+	string requestBody;
 
 	if (client.connect(SERVER, HTTPS_PORT))
 	{
 		Serial.println("Connected!");
+
 		// Don't send information if the certificates don't match!
 		if (client.verify(FINGERPRINT, SERVER)) {
-			sprintf(uid, "%d", random(UINT_MAX));
-			Serial.println("certificate matches");
-			string postData(string("{") +
-				"\"message\": {" +
-				"\"source_guid\": \"" + uid + "\"," +
-				"\"text\": \"" + message + "\"" +
-				"}" +
-				"}");
-			string request("POST /v3/groups/24907887/messages?token=");   //send HTTP POST request
-			request += " HTTP/1.1";
+			switch(requestType)
+			{
+				case GROUPME_INDEX:
+					request = request + "GET /v3/groups";
+					break;
 
-			Serial.println(request.c_str());    
-			Serial.println(message);
+				// Create a new group:
+				// Required values: "name" - The name of this group
+				// Optional values: "description" - The description of this group
+				//					"share" - Returns share link if true
+				// Need to save the group uid
+				case GROUPME_CREATE:
+					request = request + "POST /v3/groups";
+					requestBody = requestBody +
+						"{" +
+						"	\"name\":\"" + groupName + "\"";
+
+					if (hasDescription)
+					{
+						requestBody = requestBody + "," +
+						"	\"description\":\"" + groupDescription + "\"";
+					}
+
+					if (shareGroup)
+					{
+						requestBody = requestBody + "," +
+						"	\"share\":true";
+					}
+					requestBody = requestBody +
+						"}";
+					client.println(requestBody.c_str());
+
+					break;
+				case GROUPME_ADD:
+					request = request + "POST /v3/groups/" + groupUID + "/members/add/";
+					requestBody = requestBody +
+						"{" +
+						"	\"nickname\":\"" + nickname +"\"";
+						switch(userIdType)
+						{
+							case CONTACT_ID:
+								requestBody = requestBody + "\"user_id\":\"" + userId + "\"";
+								break;
+							case CONTACT_NUM:
+								requestBody = requestBody + "\"phone_number\":\"" + userId + "\"";
+								break;
+							case CONTACT_EMAIL:
+								requestBody = requestBody + "\"email\":\"" + userId + "\"";
+								break;
+						}
+					break;
+				case GROUPME_MESSAGE:
+					request = request + "POST /v3/groups/" + groupUID + "/messages";
+					sprintf(uid, "%d", random(UINT_MAX));
+					requestBody = requestBody +
+						"{" +
+						"	\"message\": {\"" +
+						"		\"source_guid\":\"" + uid + "\"" +
+						"		\"text\": " + message + "\"" +
+						"	}" +
+						"}";
+					// Remove all whitespace
+					//postData.erase(remove_if(postData.begin(), postData.end(), (int(*)(int))isspace), postData.end());
+					// Insert the message
+					//postData.replace(postData.rfind("%s"), 2, message);
+					// Insert the uid
+					//postData.replace(postData.find("%s"), 2, uid);
+					break;
+			}
+			Serial.println("certificate matches");
+			request = request + "?token=" + groupmeKey + " HTTP/1.1";
+			Serial.println(request.c_str());
 			client.println(request.c_str());
 			client.println("Host: api.groupme.com");
-			client.println("Content-Type: application/json");
-			client.print("Content-Length: ");
-			client.println(postData.length());
-			client.println();
-			client.println(postData.c_str());
+
+			if (requestBody.size() > 0)
+			{
+				client.println("Content-Type: application/json");
+				client.print("Content-Length: ");
+				client.println(requestBody.size());
+				client.println();
+				client.println(requestBody.c_str());
+			}
+
 			client.println();
 			long timeOut = 4000; //capture response from the server
 			long lastTime = millis();
+			int bytesAvailable;
+			int readLen;
+			char c;
+			char response[1025];
+			int pos = 0;
+			response[1024] = '\0';
+			group *curGroup;
+			curGroup = groupHead;
 
-			while ((millis() - lastTime) < timeOut) //wait for incoming response 
+			// There's some sort of dangling pointer or something...
+			while ((millis() - lastTime) < timeOut)	 //wait for incoming response 
 			{
-				while (client.available())           //characters incoming from server
+				// Need to read in chunks because it's gonna be UUUUGGGEEEE
+				while ((bytesAvailable = client.available()))           //characters incoming from server
 				{
-					char c = client.read();          //read characters
-					Serial.write(c);
+					if (bytesAvailable < 1024)
+					{
+						client.readBytes(response, bytesAvailable);
+					}
+					else
+					{
+						client.readBytes(response, 1024);          //read characters
+					}
+
+					// TODO: I am really going to need to audit this loop
+					// because it is really error prone
+					//
+					// Search the current string chunk for
+					// "group_id":"xxxxxxxx","name":"xxxxxxxxxxx"
+					// The problem we need to worry about is that this chunk
+					// might split up some of the needed data
+					string respString(response);
+					if (pos < respString.size())
+					{
+						Serial.println("legit!");
+						pos = respString.find("\"group_id\":\"") + 12;
+
+						// TODO: Rework this because technically group_id could be after group_name
+						// The id is 8 digits
+						if (pos + 8 < respString.size())
+						{
+							curGroup->group_id = (uint32_t) atol(respString.substr(pos, 8).c_str());
+							Serial.println(curGroup->group_id);
+							//pos += 8;
+							//pos = respString.find("\"name\":\"", pos) + 7;
+
+							//if (pos < respString.size())
+							//{
+							//	int endPos = respString.find("\"", pos + 1);
+							//}
+						}
+					}
 				}
 			}
 		} else {
@@ -119,82 +264,82 @@ void setup() {
 	WiFiManager wifiManager;
 	string ssid("");
 	char id[10];
-	WiFiManagerParameter apiKey("api_key", "Access Token", "", KEY_LEN);
-	WiFiManagerParameter singleClick("s_click", "Single Click Message", "", 140);
-	WiFiManagerParameter doubleClick("d_click", "Double Click Message", "", 140);
-	WiFiManagerParameter holdClick("h_click", "Hold Click Message", "", 140);
+	if (SPIFFS.begin()) {
+		File config = SPIFFS.open("/groupme", "r");
+		File js;
 
-	randomSeed(analogRead(0));
+		if (config)
+		{
+			Serial.println(config.size());
+			//groupmeKey = string(config.readString().c_str());
+			groupmeKey = config.readStringUntil('\n').c_str();
+			Serial.print("GroupMe API Key: ");
+			Serial.println(groupmeKey.c_str());
 
-	// Add custom inputs for the user
-	wifiManager.addParameter(&apiKey);
-	wifiManager.addParameter(&singleClick);
-	wifiManager.addParameter(&doubleClick);
-	wifiManager.addParameter(&holdClick);
+			if (groupmeKey.size() == 0)
+			{
+				WiFiManagerParameter apiKey("api_key", "Access Token", "MpgDBEjejSVNUa1kFrIqQGt0U57WYDg6M4qm1LdU", KEY_LEN);
+				WiFiManagerParameter singleClick("s_click", "Single Click Message", "", 140);
+				WiFiManagerParameter doubleClick("d_click", "Double Click Message", "", 140);
+				WiFiManagerParameter holdClick("h_click", "Hold Click Message", "", 140);
 
-	// Add custom JavaScript to get user's GroupMe groups
-	wifiManager.setCustomHeadElement(
-			"<script>"
-			"var groupsSelect;"
-			"var groupsMap = [];"
-			"function listener() {"
-			"	var groups = JSON.parse(this.responseText);"
-			"	var groupName;"
-			"	var groupId;"
-				// Remove the old groups
-			"	for (var i = 0; i < groupsSelect.length; i++) {"
-			"		groupsSelect.remove(i);"
-			"	}"
-				// Add the new groups
-			"	for (var i = 0; i < groups.length; i++) {"
-			"		groupName = groups[i].name;"
-			"		groupId = parseInt(groups[i].id);"
-			"		groupsSelect.add(groups[i].name);"
-			"		groupsMap[groupName] = groupId;"
-			"	}"
-			"}"
-			"document.addEventListener('DOMContentLoaded', function(event) {"
-			"	groupsSelect = document.createElement('select');"
-			"	var apiKey = document.getElementById('api_key');"
-			"	document.body.appendChild(groupsSelect);"
-			"	apiKey.addEventListener('input', function() {"
-			"		if (apiKey.value.length === 40) {"
-			"			var xhr = new XMLHttpRequest();"
-			"			xhr.addEventListener('load', listener);"
-			"			xhr.open('GET', 'https://api.groupme.com/v3/groups?token=' + apiKey.value);"
-			"			xhr.send();"
-			"		}"
-			"	});"
-			"});"
-			"</script>"
-	);
+				randomSeed(analogRead(0));
 
-	// XXX: Remember to change this when done debugging!
-	wifiManager.autoConnect();
-	//if (digitalRead(0) == LOW)
-	//{
-	//	wifiManager.autoConnect();
-	//}
-	// This should allow the user to force the device to go into setup mode but
-	// I haven't tested this
-	//else
-	//{
-	//	sprintf(id, "%d", ESP.getChipId());
-	//	ssid += string("ESP") + id;
-	//	wifiManager.startConfigPortal(ssid.c_str(), "");
-	//}
+				// Add custom inputs for the user
+				wifiManager.addParameter(&apiKey);
+				wifiManager.addParameter(&singleClick);
+				wifiManager.addParameter(&doubleClick);
+				wifiManager.addParameter(&holdClick);
 
-	strcpy(singleClickMessage, singleClick.getValue());
-	strcpy(doubleClickMessage, doubleClick.getValue());
-	strcpy(holdClickMessage, holdClick.getValue());
-	strcpy(key, apiKey.getValue());
-	Serial.println(singleClickMessage);
-	Serial.println(doubleClickMessage);
-	Serial.println(holdClickMessage);
 
-	Serial.println("Push the Button!");
-	//pinMode(0, INPUT_PULLUP);
-	attachInterrupt(digitalPinToInterrupt(0), readPin, CHANGE);
+				// Add custom JavaScript to get user's GroupMe groups
+				js = SPIFFS.open("/min.js", "r");
+
+				if (js != 0) {
+					Serial.println(js.size());
+					Serial.println(js.readString());
+					wifiManager.setCustomHeadElement(js.readString().c_str());
+				}
+
+				// XXX: Remember to change this when done debugging!
+				wifiManager.autoConnect();
+				strcpy(singleClickMessage, singleClick.getValue());
+				strcpy(doubleClickMessage, doubleClick.getValue());
+				strcpy(holdClickMessage, holdClick.getValue());
+				strcpy(key, apiKey.getValue());
+				Serial.println(singleClickMessage);
+				Serial.println(doubleClickMessage);
+				Serial.println(holdClickMessage);
+				config.write((const uint8_t *) key, 40);
+				config.write('\n');
+			}
+			else
+			{
+				wifiManager.autoConnect();
+				groupmeRequest(GROUPME_INDEX);
+			}
+		}
+
+		config.close();
+		SPIFFS.end();
+		//if (digitalRead(0) == LOW)
+		//{
+		//	wifiManager.autoConnect();
+		//}
+		// This should allow the user to force the device to go into setup mode but
+		// I haven't tested this
+		//else
+		//{
+		//	sprintf(id, "%d", ESP.getChipId());
+		//	ssid += string("ESP") + id;
+		//	wifiManager.startConfigPortal(ssid.c_str(), "");
+		//}
+
+
+		Serial.println("Push the Button!");
+		//pinMode(0, INPUT_PULLUP);
+		attachInterrupt(digitalPinToInterrupt(0), readPin, CHANGE);
+	}
 }
 
 void loop() {
@@ -202,20 +347,21 @@ void loop() {
 	currentTime = millis();
 	if (clickType == DOUBLE_CLICK)
 	{
-		sendMessage(doubleClickMessage);
+		//sendMessage(doubleClickMessage);
 		Serial.println("Double press");
 		clickType = 0;
 	}
 	else if (clickType == SINGLE_CLICK && currentTime - startTime > CLICK_DELAY)
 	{
-		sendMessage(singleClickMessage);
+		//sendMessage(singleClickMessage);
 		Serial.println("Single press");
 		clickType = 0;
 	}
 	else if (clickType == HOLD_CLICK && currentTime - startTime > HOLD_LENGTH)
 	{
-		sendMessage(holdClickMessage);
+		//sendMessage(holdClickMessage);
 		Serial.println("Button Hold");
 		clickType = 0;
 	}
+
 }
