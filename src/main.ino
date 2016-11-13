@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>     
 #include <climits>
+#include <ctype.h>
 #include <string>
 #include <algorithm>
 #include <cctype>
@@ -52,15 +53,9 @@ string message;
 string userId;
 bool hasDescription;
 bool shareGroup = false;
-
-struct group
-{
-	char *group_name;
-	uint32_t group_id;
-	group *next;
-};
-
-struct group *groupHead = (struct group *) malloc(sizeof(struct group));
+char groupIds[20][9] = {'\0'};
+// Group names can be up to 255 characters in length
+char groupNames[20][256] = {'\0'};
 
 // We could revert this to return a status but since I don't have any idea on
 // how to gracefully handle a failure, I think I'm going to keep it as void
@@ -72,6 +67,7 @@ void groupmeRequest(uint8_t requestType)
 	client.stop();
 	string request;
 	string requestBody;
+	bool getGroups = false;
 
 	if (client.connect(SERVER, HTTPS_PORT))
 	{
@@ -82,7 +78,8 @@ void groupmeRequest(uint8_t requestType)
 			switch(requestType)
 			{
 				case GROUPME_INDEX:
-					request = request + "GET /v3/groups";
+					request = request + "GET /v3/groups?per_page=1";
+					getGroups = true;
 					break;
 
 				// Create a new group:
@@ -148,74 +145,126 @@ void groupmeRequest(uint8_t requestType)
 					//postData.replace(postData.find("%s"), 2, uid);
 					break;
 			}
-			Serial.println("certificate matches");
-			request = request + "?token=" + groupmeKey + " HTTP/1.1";
-			Serial.println(request.c_str());
-			client.println(request.c_str());
-			client.println("Host: api.groupme.com");
 
-			if (requestBody.size() > 0)
-			{
-				client.println("Content-Type: application/json");
-				client.print("Content-Length: ");
-				client.println(requestBody.size());
-				client.println();
-				client.println(requestBody.c_str());
-			}
-
-			client.println();
+			uint8_t pageNum = 1;
+			char pageNumStr[2];
 			long timeOut = 4000; //capture response from the server
 			long lastTime = millis();
-			int bytesAvailable;
+			uint32_t bytesAvailable;
 			int readLen;
 			char c;
-			char response[1025];
-			int pos = 0;
-			response[1024] = '\0';
-			group *curGroup;
-			curGroup = groupHead;
-
-			// There's some sort of dangling pointer or something...
-			while ((millis() - lastTime) < timeOut)	 //wait for incoming response 
+			char response[1025] = {'\0'};
+			// By default, the request gets 1 "page" of results with 10 groups
+			// on the page. If we want more groups, we can either have multiple
+			// requests or increase the number of groups per page.
+			char *pos;
+			uint8_t idIdx = 0;
+			uint8_t nameIdx = 0;
+			uint8_t nameLen;
+			Serial.println("certificate matches");
+			while (getGroups)
 			{
-				// Need to read in chunks because it's gonna be UUUUGGGEEEE
-				while ((bytesAvailable = client.available()))           //characters incoming from server
+				//request = request + "&token=" + groupmeKey + " HTTP/1.1";
+				if (getGroups)
 				{
-					if (bytesAvailable < 1024)
-					{
-						client.readBytes(response, bytesAvailable);
-					}
-					else
-					{
-						client.readBytes(response, 1024);          //read characters
-					}
+					sprintf(pageNumStr, "%d", pageNum);
+					Serial.println((request + "&page=" + pageNumStr + "&token=" + groupmeKey + " HTTP/1.1").c_str());
+					client.println((request + "&page=" + pageNumStr + "&token=" + groupmeKey + " HTTP/1.1").c_str());
+					pageNum++;
+				}
+				client.println("Host: api.groupme.com");
 
-					// TODO: I am really going to need to audit this loop
-					// because it is really error prone
-					//
-					// Search the current string chunk for
-					// "group_id":"xxxxxxxx","name":"xxxxxxxxxxx"
-					// The problem we need to worry about is that this chunk
-					// might split up some of the needed data
-					string respString(response);
-					if (pos < respString.size())
-					{
-						Serial.println("legit!");
-						pos = respString.find("\"group_id\":\"") + 12;
+				if (requestBody.size() > 0)
+				{
+					client.println("Content-Type: application/json");
+					client.print("Content-Length: ");
+					client.println(requestBody.size());
+					client.println();
+					client.println(requestBody.c_str());
+				}
 
-						// TODO: Rework this because technically group_id could be after group_name
-						// The id is 8 digits
-						if (pos + 8 < respString.size())
+				client.println();
+				lastTime = millis();
+
+				// There's some sort of dangling pointer or something...
+				while ((millis() - lastTime) < timeOut)	 //wait for incoming response 
+				{
+					// Need to read in chunks because it's gonna be UUUUGGGEEEE
+					while ((bytesAvailable = client.available()))           //characters incoming from server
+					{
+						if (bytesAvailable < 1024)
 						{
-							curGroup->group_id = (uint32_t) atol(respString.substr(pos, 8).c_str());
-							Serial.println(curGroup->group_id);
-							//pos += 8;
-							//pos = respString.find("\"name\":\"", pos) + 7;
+							client.readBytes(response, bytesAvailable);
+						}
+						else
+						{
+							client.readBytes(response, 1024);          //read characters
+						}
+						//Serial.print(response);
+						if (strstr(response, "Content-Length: 36"))
+						{
+							getGroups = false;
+						}
+						else
+						{
+							// TODO: I am really going to need to audit this loop
+							// because it is really error prone
+							//
+							// Search the current string chunk for
+							// "group_id":"xxxxxxxx","name":"xxxxxxxxxxx"
+							// The problem we need to worry about is that this chunk
+							// might split up some of the needed data
 
-							//if (pos < respString.size())
-							//{
-							//	int endPos = respString.find("\"", pos + 1);
-							//}
+							// Find the pointer to the beginning of the group id key.
+							if (idIdx < 20)
+							{
+								pos = strstr(response, "\"group_id\":\"");
+								if (pos != NULL)// && pos + 12 + 8 < response + bytesAvailable)
+								{
+									strncpy(groupIds[idIdx], pos + 12, 8);
+									// Since the group ids may be less than 8 digits,
+									// remove any extraneous characters
+									for (uint8_t i = 0; i < 8; i++)
+									{
+										// Replace non digits with null terminators
+										if (!isdigit(groupIds[idIdx][i]))
+										{
+											groupIds[idIdx][i] = '\0';
+											break;
+										}
+									}
+
+									Serial.println(groupIds[idIdx]);
+									idIdx++;
+								}
+							}
+
+							// Find the pointer to the beginning of the group name
+							if (nameIdx < 20)
+							{
+								pos = strstr(response, "\"name\":\"");
+
+								if (pos != NULL && pos + 9 < response + bytesAvailable)
+								{
+									if (strstr(pos + 8, "\"") != NULL)
+									{
+										nameLen = (uint8_t) (strstr(pos + 8, "\"") - (pos + 8));
+										if (pos + 8 + nameLen < response + bytesAvailable)
+										{
+											//Serial.printf("Length of name %u at location %p\n", nameLen, pos + 9 + nameLen);
+											//Serial.printf("Store location: %p\n", groupNames[nameIdx]);
+											//strncpy(groupNames[0], pos + 9, nameLen);
+											for (int i = 0; i < nameLen; i++)
+											{
+												groupNames[nameIdx][i] = pos[8 + i];
+												Serial.print(groupNames[nameIdx][i]);
+											}
+											Serial.println();
+										}
+										nameIdx++;
+									}
+								}
+							}
 						}
 					}
 				}
@@ -261,7 +310,37 @@ void setup() {
 	// put your setup code here, to run once:
 	Serial.begin(115200);
 	delay(1000);
-	WiFiManager wifiManager;
+	//station_config *config;
+	//uint8_t ssid[32] = "psu";
+	//uint8_t password[64] = {0};
+	//memcpy(config->ssid, ssid, 32);
+	//memcpy(config->password, password, 64);
+	//config->bssid_set = 0;
+	//SPIFFS.begin();
+	//File certificate = SPIFFS.open("/thawte_Primary_Root_CA.der", "r");
+	//uint8_t cert[1060];
+	//certificate.readBytes((char *) &cert, 1060);
+	//certificate.close();
+	//SPIFFS.end();
+	//if (wifi_station_set_config(config)) {
+	//	wifi_station_set_wpa2_enterprise_auth(1);
+	//	wifi_station_set_enterprise_username((u8*)"tfl5034", 7);
+	//	wifi_station_set_enterprise_password((u8*)"spiffy1315s", 11);
+	//	wifi_station_set_enterprise_ca_cert((u8*)&cert, 1060);
+	//	wifi_station_connect();
+	//	wifi_station_clear_enterprise_cert_key();
+	//	wifi_station_clear_enterprise_ca_cert();
+	//}
+	//WiFiManager wifiManager;
+	WiFi.disconnect(true);
+	WiFi.begin("testeroo", "testeroo");
+
+	while (WiFi.status() != WL_CONNECTED)
+	{
+		delay(500);
+		Serial.print(".");
+	}
+	Serial.println();
 	string ssid("");
 	char id[10];
 	if (SPIFFS.begin()) {
@@ -276,7 +355,7 @@ void setup() {
 			Serial.print("GroupMe API Key: ");
 			Serial.println(groupmeKey.c_str());
 
-			if (groupmeKey.size() == 0)
+			/*if (groupmeKey.size() == 0)
 			{
 				WiFiManagerParameter apiKey("api_key", "Access Token", "MpgDBEjejSVNUa1kFrIqQGt0U57WYDg6M4qm1LdU", KEY_LEN);
 				WiFiManagerParameter singleClick("s_click", "Single Click Message", "", 140);
@@ -314,10 +393,10 @@ void setup() {
 				config.write('\n');
 			}
 			else
-			{
-				wifiManager.autoConnect();
+			{*/
+				//wifiManager.autoConnect();
 				groupmeRequest(GROUPME_INDEX);
-			}
+			//}
 		}
 
 		config.close();
@@ -336,7 +415,7 @@ void setup() {
 		//}
 
 
-		Serial.println("Push the Button!");
+		//Serial.println("Push the Button!");
 		//pinMode(0, INPUT_PULLUP);
 		attachInterrupt(digitalPinToInterrupt(0), readPin, CHANGE);
 	}
