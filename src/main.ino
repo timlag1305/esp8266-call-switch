@@ -53,6 +53,7 @@ string message;
 string userId;
 bool hasDescription;
 bool shareGroup = false;
+// Get a maximum of 20 groups and group IDs
 char groupIds[20][9] = {'\0'};
 // Group names can be up to 255 characters in length
 char groupNames[20][256] = {'\0'};
@@ -172,6 +173,7 @@ void groupmeRequest(uint8_t requestType)
 					client.println((request + "&page=" + pageNumStr + "&token=" + groupmeKey + " HTTP/1.1").c_str());
 					pageNum++;
 				}
+
 				client.println("Host: api.groupme.com");
 
 				if (requestBody.size() > 0)
@@ -272,7 +274,6 @@ void groupmeRequest(uint8_t requestType)
 		} else {
 			Serial.println("certificate doesn't match");
 		}
-
 	}
 	else
 	{
@@ -310,30 +311,9 @@ void setup() {
 	// put your setup code here, to run once:
 	Serial.begin(115200);
 	delay(1000);
-	//station_config *config;
-	//uint8_t ssid[32] = "psu";
-	//uint8_t password[64] = {0};
-	//memcpy(config->ssid, ssid, 32);
-	//memcpy(config->password, password, 64);
-	//config->bssid_set = 0;
-	//SPIFFS.begin();
-	//File certificate = SPIFFS.open("/thawte_Primary_Root_CA.der", "r");
-	//uint8_t cert[1060];
-	//certificate.readBytes((char *) &cert, 1060);
-	//certificate.close();
-	//SPIFFS.end();
-	//if (wifi_station_set_config(config)) {
-	//	wifi_station_set_wpa2_enterprise_auth(1);
-	//	wifi_station_set_enterprise_username((u8*)"tfl5034", 7);
-	//	wifi_station_set_enterprise_password((u8*)"spiffy1315s", 11);
-	//	wifi_station_set_enterprise_ca_cert((u8*)&cert, 1060);
-	//	wifi_station_connect();
-	//	wifi_station_clear_enterprise_cert_key();
-	//	wifi_station_clear_enterprise_ca_cert();
-	//}
 	//WiFiManager wifiManager;
 	WiFi.disconnect(true);
-	WiFi.begin("testeroo", "testeroo");
+	WiFi.begin("TachiLove", "tachi523");
 
 	while (WiFi.status() != WL_CONNECTED)
 	{
@@ -350,7 +330,6 @@ void setup() {
 		if (config)
 		{
 			Serial.println(config.size());
-			//groupmeKey = string(config.readString().c_str());
 			groupmeKey = config.readStringUntil('\n').c_str();
 			Serial.print("GroupMe API Key: ");
 			Serial.println(groupmeKey.c_str());
