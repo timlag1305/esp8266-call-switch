@@ -54,9 +54,10 @@ string userId;
 bool hasDescription;
 bool shareGroup = false;
 // Get a maximum of 20 groups and group IDs
-char groupIds[20][9] = {'\0'};
+char **groupIds;
 // Group names can be up to 255 characters in length
-char groupNames[20][256] = {'\0'};
+char **groupNames;
+uint8_t numGroups = 10;
 
 // We could revert this to return a status but since I don't have any idea on
 // how to gracefully handle a failure, I think I'm going to keep it as void
@@ -148,13 +149,11 @@ void groupmeRequest(uint8_t requestType)
 			}
 
 			uint8_t pageNum = 1;
-			char pageNumStr[2];
+			char pageNumStr[3];
 			long timeOut = 4000; //capture response from the server
 			long lastTime = millis();
 			uint32_t bytesAvailable;
-			int readLen;
-			char c;
-			char response[1025] = {'\0'};
+			char response[1025];
 			// By default, the request gets 1 "page" of results with 10 groups
 			// on the page. If we want more groups, we can either have multiple
 			// requests or increase the number of groups per page.
@@ -168,6 +167,7 @@ void groupmeRequest(uint8_t requestType)
 				//request = request + "&token=" + groupmeKey + " HTTP/1.1";
 				if (getGroups)
 				{
+					yield();
 					sprintf(pageNumStr, "%d", pageNum);
 					Serial.println((request + "&page=" + pageNumStr + "&token=" + groupmeKey + " HTTP/1.1").c_str());
 					client.println((request + "&page=" + pageNumStr + "&token=" + groupmeKey + " HTTP/1.1").c_str());
@@ -186,9 +186,12 @@ void groupmeRequest(uint8_t requestType)
 				}
 
 				client.println();
+				yield();
 				lastTime = millis();
 
-				// There's some sort of dangling pointer or something...
+				// I inserted a bunch of yields in receiving the response
+				// because it takes a while and I believe that inserting the
+				// yields will reduce malloc based errors.
 				while ((millis() - lastTime) < timeOut)	 //wait for incoming response 
 				{
 					// Need to read in chunks because it's gonna be UUUUGGGEEEE
@@ -218,59 +221,76 @@ void groupmeRequest(uint8_t requestType)
 							// might split up some of the needed data
 
 							// Find the pointer to the beginning of the group id key.
-							if (idIdx < 20)
+							if (pageNum - 1 > numGroups)
 							{
-								pos = strstr(response, "\"group_id\":\"");
-								if (pos != NULL)// && pos + 12 + 8 < response + bytesAvailable)
-								{
-									strncpy(groupIds[idIdx], pos + 12, 8);
-									// Since the group ids may be less than 8 digits,
-									// remove any extraneous characters
-									for (uint8_t i = 0; i < 8; i++)
-									{
-										// Replace non digits with null terminators
-										if (!isdigit(groupIds[idIdx][i]))
-										{
-											groupIds[idIdx][i] = '\0';
-											break;
-										}
-									}
+								numGroups += 5;
+								// Add another 5 groups if they have all been maxed out
+								groupIds = (char **) realloc(groupIds, numGroups * sizeof(*groupIds));
+								groupNames = (char **) realloc(groupNames, numGroups * sizeof(*groupNames));
 
-									Serial.println(groupIds[idIdx]);
-									idIdx++;
+								for (uint8_t i = 5; i > 0; i--)
+								{
+									groupIds[numGroups - i] = (char *) calloc(9, 1);
+									groupNames[numGroups - i] = (char *) calloc(256, 1);
 								}
 							}
 
-							// Find the pointer to the beginning of the group name
-							if (nameIdx < 20)
-							{
-								pos = strstr(response, "\"name\":\"");
+							pos = strstr(response, "\"group_id\":\"");
 
-								if (pos != NULL && pos + 9 < response + bytesAvailable)
+							if (pos != NULL)// && pos + 12 + 8 < response + bytesAvailable)
+							{
+								strncpy(groupIds[idIdx], pos + 12, 8);
+								// Since the group ids may be less than 8 digits,
+								// remove any extraneous characters
+								for (uint8_t i = 0; i < 8; i++)
 								{
-									if (strstr(pos + 8, "\"") != NULL)
+									// Replace non digits with null terminators
+									if (!isdigit(groupIds[idIdx][i]))
 									{
-										nameLen = (uint8_t) (strstr(pos + 8, "\"") - (pos + 8));
-										if (pos + 8 + nameLen < response + bytesAvailable)
-										{
-											//Serial.printf("Length of name %u at location %p\n", nameLen, pos + 9 + nameLen);
-											//Serial.printf("Store location: %p\n", groupNames[nameIdx]);
-											//strncpy(groupNames[0], pos + 9, nameLen);
-											for (int i = 0; i < nameLen; i++)
-											{
-												groupNames[nameIdx][i] = pos[8 + i];
-												Serial.print(groupNames[nameIdx][i]);
-											}
-											Serial.println();
-										}
-										nameIdx++;
+										groupIds[idIdx][i] = '\0';
+										break;
 									}
+								}
+
+								Serial.println(groupIds[idIdx]);
+								idIdx++;
+							}
+
+							// Find the pointer to the beginning of the group name
+							pos = strstr(response, "\"name\":\"");
+
+							if (pos != NULL && pos + 9 < response + bytesAvailable)
+							{
+								if (strstr(pos + 8, "\"") != NULL)
+								{
+									nameLen = (uint8_t) (strstr(pos + 8, "\"") - (pos + 8));
+									if (pos + 8 + nameLen < response + bytesAvailable)
+									{
+										strncpy(groupNames[nameIdx], pos + 8, nameLen);
+										Serial.println(groupNames[nameIdx]);
+									}
+									nameIdx++;
 								}
 							}
 						}
 					}
 				}
+				numGroups = pageNum - 1;
 			}
+
+			//if (requestType == GROUPME_INDEX)
+			//{
+			//	SPIFFS.begin();
+			//	File groupMeGroups = SPIFFS.open("/groups", "w");
+
+			//	for (int i = 0; i < pageNum; i++)
+			//	{
+			//		groupMeGroups.println((string("\"") + groupIds[i] + "\",\"" + groupNames[i] + "\"").c_str());
+			//	}
+
+			//	groupMeGroups.close();
+			//	SPIFFS.end();
+			//}
 		} else {
 			Serial.println("certificate doesn't match");
 		}
@@ -280,6 +300,7 @@ void groupmeRequest(uint8_t requestType)
 		Serial.println("Connection Failed");
 	}
 
+	client.stop();
 	Serial.println();
 	Serial.println("Request Complete!!");
 }
@@ -311,18 +332,27 @@ void setup() {
 	// put your setup code here, to run once:
 	Serial.begin(115200);
 	delay(1000);
-	//WiFiManager wifiManager;
+	WiFiManager wifiManager;
 	WiFi.disconnect(true);
-	WiFi.begin("TachiLove", "tachi523");
+	//WiFi.begin("TachiLove", "tachi523");
 
-	while (WiFi.status() != WL_CONNECTED)
-	{
-		delay(500);
-		Serial.print(".");
-	}
-	Serial.println();
-	string ssid("");
+	//while (WiFi.status() != WL_CONNECTED)
+	//{
+	//	delay(500);
+	//	Serial.print(".");
+	//}
+	//Serial.println();
+	//string ssid("");
 	char id[10];
+	groupIds = (char **) malloc(numGroups * (sizeof(*groupIds)));
+	groupNames = (char **) malloc(numGroups * (sizeof(*groupNames)));
+
+	for (int i = 0; i < 10; i++)
+	{
+		groupIds[i] = (char *) calloc(9, 1);
+		groupNames[i] = (char *) calloc(256, 1);
+	}
+
 	if (SPIFFS.begin()) {
 		File config = SPIFFS.open("/groupme", "r");
 		File js;
@@ -373,8 +403,12 @@ void setup() {
 			}
 			else
 			{*/
-				//wifiManager.autoConnect();
+				wifiManager.autoConnect();
 				groupmeRequest(GROUPME_INDEX);
+				wifiManager.setConnected(true);
+				wifiManager.setGroups(groupNames, groupIds, numGroups);
+				WiFi.disconnect(true);
+				wifiManager.startConfigPortal();
 			//}
 		}
 
