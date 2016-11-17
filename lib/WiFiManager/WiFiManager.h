@@ -19,6 +19,9 @@
 #include <memory>
 #include <FS.h>
 
+extern char groupIds[10][9];
+extern char groupNames[10][256];
+
 extern "C" {
   #include "user_interface.h"
 }
@@ -112,7 +115,7 @@ class WiFiManager
     void          setCustomHeadElement(const char* element);
     //if this is true, remove duplicated Access Points - defaut true
     void          setRemoveDuplicateAPs(boolean removeDuplicates);
-	void		  setGroups(char **names, char **ids, uint8_t num);
+	void		  setGroups(char names[10][256], char ids[10][9], uint8_t num);
 	void		  setConnected(bool);
 
   private:
@@ -196,6 +199,11 @@ class WiFiManager
       DEBUG_WM("NO fromString METHOD ON IPAddress, you need ESP8266 core 2.1.0 or newer for Custom IP configuration to work.");
       return false;
     }
+
+	// Custom variables
+	char		(*groupNames)[256];
+	char		(*groupIds)[9];
+	uint8_t		numGroups;
 };
 
 #endif

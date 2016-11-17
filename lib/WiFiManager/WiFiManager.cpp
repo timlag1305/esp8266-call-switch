@@ -21,8 +21,6 @@ WiFiManagerParameter::WiFiManagerParameter(const char *custom) {
 	_customHTML = custom;
 }
 
-char **myGroupNames;
-char **myGroupIds;
 uint8_t myNumGroups;
 bool isConnected = false;
 
@@ -779,9 +777,13 @@ void WiFiManager::handleNotFound() {
 boolean WiFiManager::captivePortal() {
 	if (!isIp(server->hostHeader()) ) {
 		DEBUG_WM(F("Request redirected to captive portal"));
+		Serial.println("a");
 		server->sendHeader("Location", String("http://") + toStringIp(server->client().localIP()), true);
+	Serial.println("b");
 		server->send ( 302, "text/plain", ""); // Empty content inhibits Content-length header so we have to close the socket ourselves.
+	Serial.println("c");
 		server->client().stop(); // Stop is needed because we sent no content length
+	Serial.println("d");
 		return true;
 	}
 	return false;
@@ -851,10 +853,10 @@ String WiFiManager::toStringIp(IPAddress ip) {
 	return res;
 }
 
-void WiFiManager::setGroups(char **names, char **ids, uint8_t num) {
-	myNumGroups = num;
-	myGroupNames = names;
-	myGroupIds = ids;
+void WiFiManager::setGroups(char names[10][256], char ids[10][9], uint8_t num) {
+	//groupNames = names;
+	//groupIds = ids;
+	//numGroups = num;
 }
 
 void WiFiManager::setConnected(bool connected) {
@@ -904,17 +906,38 @@ void WiFiManager::handleGroups() {
 	char response[1024] = {'\0'};
 	response[0] = '[';
 
-	for (uint8_t i = 0; i < myNumGroups; i++) {
-		strcat(response, "{\"n\":\"");
-		strcat(response, myGroupNames[i]);
-		strcat(response, "\",\"i\":");
-		strcat(response, myGroupIds[i]);
-		strcat(response, "}");
-
-		if (i + 1 < myNumGroups) {
-			strcat(response, ",");
+	Serial.println("Adding group info");
+	for (uint8_t i = 0; i < 90; i++) {
+		//Serial.print(groupIds[0][i]);
+		if (i % 9 == 0) {
+			Serial.println();
 		}
 	}
+	//for (uint16_t i = 0; i < 2560; i++) {
+	//	Serial.print(groupNames[0][i]);
+	//	if (i % 10 == 0) {
+	//		Serial.println();
+	//	}
+	//}
+	//for (uint8_t i = 0; i < 10; i++) {
+	//	strcat(response, "{\"n\":\"");
+	//	for (uint8_t j = 0; j < 256; j++) {
+	//		Serial.println(**(groupNames + 256 * i + j));
+	//		strncat(response, *(groupNames + 256 * i + j), 1);
+	//	}
+
+	//	strcat(response, "\",\"i\":");
+	//	for (uint8_t j = 0; j < 9; j++) {
+	//		Serial.println(**(groupIds + 9 * i + j));
+	//		strncat(response, *(groupIds + 9 * i + j), 1);
+	//	}
+
+	//	strcat(response, "}");
+
+	//	if (i + 1 < 10) {
+	//		strcat(response, ",");
+	//	}
+	//}
 
 	strcat(response, "]");
 	server->send(200, "application/json", response);

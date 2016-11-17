@@ -31,6 +31,7 @@
 // Fingerprint found using https://www.grc.com/fingerprints.htm
 #define FINGERPRINT "ED:22:CB:A5:30:A8:BB:B0:C2:27:93:90:65:CD:64:EA:EA:18:3F:0E"
 
+
 using namespace std;
 
 WiFiClientSecure client;
@@ -38,35 +39,30 @@ uint32_t startTime = 0;
 uint32_t prevStartTime = 0;
 uint32_t currentTime;
 uint8_t clickType = 0;
-uint8_t userIdType;
-uint32_t randNumber;
-char singleClickMessage[141];
-char doubleClickMessage[141];
-char holdClickMessage[141];
+//uint8_t userIdType;
+//char singleClickMessage[141];
+//char doubleClickMessage[141];
+//char holdClickMessage[141];
 char key[41];
-string groupmeKey;
-string groupName;
-string groupDescription;
-string groupUID;
-string nickname;
-string message;
-string userId;
+//string groupName;
+//string groupDescription;
+//string groupUID;
+//string nickname;
+//string message;
+//string userId;
 bool hasDescription;
 bool shareGroup = false;
-// Get a maximum of 20 groups and group IDs
-char **groupIds;
-// Group names can be up to 255 characters in length
-char **groupNames;
-uint8_t numGroups = 10;
 
 // We could revert this to return a status but since I don't have any idea on
 // how to gracefully handle a failure, I think I'm going to keep it as void
 // XXX: Add support for various requests starting with a request to get all of the user's current groups!!!
 // TODO: Refactor so that the user can just include a number parameter
-void groupmeRequest(uint8_t requestType)
+void groupmeRequest(uint8_t requestType, char groupNames[][256], char groupIds[][9])
 {
+	uint8_t numGroups = 10;
 	char uid[11];
 	client.stop();
+	// TODO: Change requests to char arrays
 	string request;
 	string requestBody;
 	bool getGroups = false;
@@ -89,63 +85,63 @@ void groupmeRequest(uint8_t requestType)
 				// Optional values: "description" - The description of this group
 				//					"share" - Returns share link if true
 				// Need to save the group uid
-				case GROUPME_CREATE:
-					request = request + "POST /v3/groups";
-					requestBody = requestBody +
-						"{" +
-						"	\"name\":\"" + groupName + "\"";
+				//case GROUPME_CREATE:
+				//	request = request + "POST /v3/groups";
+				//	requestBody = requestBody +
+				//		"{" +
+				//		"	\"name\":\"" + groupName + "\"";
 
-					if (hasDescription)
-					{
-						requestBody = requestBody + "," +
-						"	\"description\":\"" + groupDescription + "\"";
-					}
+				//	if (hasDescription)
+				//	{
+				//		requestBody = requestBody + "," +
+				//		"	\"description\":\"" + groupDescription + "\"";
+				//	}
 
-					if (shareGroup)
-					{
-						requestBody = requestBody + "," +
-						"	\"share\":true";
-					}
-					requestBody = requestBody +
-						"}";
-					client.println(requestBody.c_str());
+				//	if (shareGroup)
+				//	{
+				//		requestBody = requestBody + "," +
+				//		"	\"share\":true";
+				//	}
+				//	requestBody = requestBody +
+				//		"}";
+				//	client.println(requestBody.c_str());
 
-					break;
-				case GROUPME_ADD:
-					request = request + "POST /v3/groups/" + groupUID + "/members/add/";
-					requestBody = requestBody +
-						"{" +
-						"	\"nickname\":\"" + nickname +"\"";
-						switch(userIdType)
-						{
-							case CONTACT_ID:
-								requestBody = requestBody + "\"user_id\":\"" + userId + "\"";
-								break;
-							case CONTACT_NUM:
-								requestBody = requestBody + "\"phone_number\":\"" + userId + "\"";
-								break;
-							case CONTACT_EMAIL:
-								requestBody = requestBody + "\"email\":\"" + userId + "\"";
-								break;
-						}
-					break;
-				case GROUPME_MESSAGE:
-					request = request + "POST /v3/groups/" + groupUID + "/messages";
-					sprintf(uid, "%d", random(UINT_MAX));
-					requestBody = requestBody +
-						"{" +
-						"	\"message\": {\"" +
-						"		\"source_guid\":\"" + uid + "\"" +
-						"		\"text\": " + message + "\"" +
-						"	}" +
-						"}";
-					// Remove all whitespace
-					//postData.erase(remove_if(postData.begin(), postData.end(), (int(*)(int))isspace), postData.end());
-					// Insert the message
-					//postData.replace(postData.rfind("%s"), 2, message);
-					// Insert the uid
-					//postData.replace(postData.find("%s"), 2, uid);
-					break;
+				//	break;
+				//case GROUPME_ADD:
+				//	request = request + "POST /v3/groups/" + groupUID + "/members/add/";
+				//	requestBody = requestBody +
+				//		"{" +
+				//		"	\"nickname\":\"" + nickname +"\"";
+				//		switch(userIdType)
+				//		{
+				//			case CONTACT_ID:
+				//				requestBody = requestBody + "\"user_id\":\"" + userId + "\"";
+				//				break;
+				//			case CONTACT_NUM:
+				//				requestBody = requestBody + "\"phone_number\":\"" + userId + "\"";
+				//				break;
+				//			case CONTACT_EMAIL:
+				//				requestBody = requestBody + "\"email\":\"" + userId + "\"";
+				//				break;
+				//		}
+				//	break;
+				//case GROUPME_MESSAGE:
+				//	request = request + "POST /v3/groups/" + groupUID + "/messages";
+				//	sprintf(uid, "%d", random(UINT_MAX));
+				//	requestBody = requestBody +
+				//		"{" +
+				//		"	\"message\": {\"" +
+				//		"		\"source_guid\":\"" + uid + "\"" +
+				//		"		\"text\": " + message + "\"" +
+				//		"	}" +
+				//		"}";
+				//	// Remove all whitespace
+				//	//postData.erase(remove_if(postData.begin(), postData.end(), (int(*)(int))isspace), postData.end());
+				//	// Insert the message
+				//	//postData.replace(postData.rfind("%s"), 2, message);
+				//	// Insert the uid
+				//	//postData.replace(postData.find("%s"), 2, uid);
+				//	break;
 			}
 
 			uint8_t pageNum = 1;
@@ -169,8 +165,11 @@ void groupmeRequest(uint8_t requestType)
 				{
 					yield();
 					sprintf(pageNumStr, "%d", pageNum);
-					Serial.println((request + "&page=" + pageNumStr + "&token=" + groupmeKey + " HTTP/1.1").c_str());
-					client.println((request + "&page=" + pageNumStr + "&token=" + groupmeKey + " HTTP/1.1").c_str());
+					Serial.println((request + "&page=" + pageNumStr + "&token=" + key + " HTTP/1.1").c_str());
+					client.println((request + "&page=" + pageNumStr + "&token=" + key + " HTTP/1.1").c_str());
+					if (pageNum == 10) {
+						break;
+					}
 					pageNum++;
 				}
 
@@ -223,16 +222,16 @@ void groupmeRequest(uint8_t requestType)
 							// Find the pointer to the beginning of the group id key.
 							if (pageNum - 1 > numGroups)
 							{
-								numGroups += 5;
-								// Add another 5 groups if they have all been maxed out
-								groupIds = (char **) realloc(groupIds, numGroups * sizeof(*groupIds));
-								groupNames = (char **) realloc(groupNames, numGroups * sizeof(*groupNames));
+								//numGroups += 5;
+								//// Add another 5 groups if they have all been maxed out
+								//groupIds = (char *) realloc(groupIds, numGroups * sizeof(*groupIds));
+								//groupNames = (char *) realloc(groupNames, numGroups * sizeof(*groupNames));
 
-								for (uint8_t i = 5; i > 0; i--)
-								{
-									groupIds[numGroups - i] = (char *) calloc(9, 1);
-									groupNames[numGroups - i] = (char *) calloc(256, 1);
-								}
+								//for (uint8_t i = 5; i > 0; i--)
+								//{
+								//	groupIds[numGroups - i] = (char *) calloc(9, 1);
+								//	groupNames[numGroups - i] = (char *) calloc(256, 1);
+								//}
 							}
 
 							pos = strstr(response, "\"group_id\":\"");
@@ -334,24 +333,17 @@ void setup() {
 	delay(1000);
 	WiFiManager wifiManager;
 	WiFi.disconnect(true);
-	//WiFi.begin("TachiLove", "tachi523");
+	//It seems like group IDs can be 8 digits in length. I will change this to a uint32_t though.
+	char groupIds[10][9];
+	// Group names can be up to 255 characters in length
+	char groupNames[10][256];
+	//char id[10];
 
-	//while (WiFi.status() != WL_CONNECTED)
+	//for (int i = 0; i < 10; i++)
 	//{
-	//	delay(500);
-	//	Serial.print(".");
+	//	groupIds[i] = (char *) calloc(9, 1);
+	//	groupNames[i] = (char *) calloc(256, 1);
 	//}
-	//Serial.println();
-	//string ssid("");
-	char id[10];
-	groupIds = (char **) malloc(numGroups * (sizeof(*groupIds)));
-	groupNames = (char **) malloc(numGroups * (sizeof(*groupNames)));
-
-	for (int i = 0; i < 10; i++)
-	{
-		groupIds[i] = (char *) calloc(9, 1);
-		groupNames[i] = (char *) calloc(256, 1);
-	}
 
 	if (SPIFFS.begin()) {
 		File config = SPIFFS.open("/groupme", "r");
@@ -360,9 +352,9 @@ void setup() {
 		if (config)
 		{
 			Serial.println(config.size());
-			groupmeKey = config.readStringUntil('\n').c_str();
+			strcpy(key, config.readStringUntil('\n').c_str());
 			Serial.print("GroupMe API Key: ");
-			Serial.println(groupmeKey.c_str());
+			Serial.println(key);
 
 			/*if (groupmeKey.size() == 0)
 			{
@@ -404,11 +396,11 @@ void setup() {
 			else
 			{*/
 				wifiManager.autoConnect();
-				groupmeRequest(GROUPME_INDEX);
-				wifiManager.setConnected(true);
-				wifiManager.setGroups(groupNames, groupIds, numGroups);
-				WiFi.disconnect(true);
-				wifiManager.startConfigPortal();
+				groupmeRequest(GROUPME_INDEX, groupNames, groupIds);
+				//wifiManager.setConnected(true);
+				//wifiManager.setGroups(groupNames, groupIds, 10);
+				//WiFi.disconnect(true);
+				//wifiManager.startConfigPortal();
 			//}
 		}
 
