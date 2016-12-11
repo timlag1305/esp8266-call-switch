@@ -243,6 +243,7 @@ void setupWiFiManager()
 {
 	char groupUrl[48] = {'\0'};
 	WiFiManager wifiManager;
+	wifiManager.setDebugOutput(false);
 	// Add the groups ids
 	WiFiManagerParameter paramGroupToken("g_toke", "GroupMe Token", groupMeToken, 41);
 	wifiManager.addParameter(&paramGroupToken);
