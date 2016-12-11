@@ -1,12 +1,12 @@
-#include <FS.h>
-#include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
-#include <WiFiManager.h>
-#include <ArduinoJson.h>
+#include <ESP8266WiFi.h>
+#include <FS.h>
 #include <WiFiClientSecure.h>
-//#include <GDBStub.h>
+#include <WiFiManager.h>
 #include <climits>
+#include <vector>
 
 const uint16_t CLICK_DELAY = 500;
 const uint16_t HEADER_BYTES = 551;
@@ -15,99 +15,77 @@ const uint8_t DOUBLE_CLICK = 1;
 const uint8_t HOLD_CLICK = 2;
 const uint8_t INVALID_CLICK = 3;
 const uint8_t SINGLE_CLICK = 0;
+const uint8_t GPIO_PIN = 13;
+const uint16_t PORTAL_TIMEOUT = 600;
 
 char groupMeToken[41] = {'\0'};
 char groupMessages[3][141] = {'\0'};
-uint32_t currentTime;
+unsigned long currentTime;
 uint32_t groupIds[3] = {0};
-uint32_t prevStartTime = 0;
-uint32_t startTime = 0;
+unsigned long prevStartTime = 0;
+unsigned long startTime = 0;
 uint8_t clickType = INVALID_CLICK;
+bool pinChanged = false;
 
 bool writeConfigFile();
 bool readConfigFile();
+void setupWiFiManager();
 
 void setup()
 {
 	Serial.begin(115200);
 	SPIFFS.begin();
 	readConfigFile();
-	Serial.println();
-	// Check if the GroupMe token was in the config file
-
+	// This ensures that the button press pulls the pin low and that the button
+	// release pulls it back high.
+	pinMode(GPIO_PIN, INPUT_PULLUP);
 	// Check if any of the required fields need to be added to the user for the
 	// device to function correctly
-	// TODO: Should we check each of the entries in the variables to make sure
-	// they are valid?
-	// TODO: (Part 2) Possibly add some javascript to try and valid the inputs.
-	if (WiFi.SSID() == "" || groupMeToken[0] == '\0' || groupIds[0] == 0 || groupMessages[0][0] == '\0')
+	if (digitalRead(GPIO_PIN) == LOW || WiFi.SSID() == "" || groupMeToken[0] == '\0' || groupIds[0] == 0 || groupMessages[0][0] == '\0')
 	{
-		char groupUrl[48] = {'\0'};
-		WiFiManager wifiManager;
-		// Add the groups ids
-		WiFiManagerParameter paramGroupToken("g_toke", "GroupMe Token", groupMeToken, 41);
-		wifiManager.addParameter(&paramGroupToken);
-		std::vector<WiFiManagerParameter> paramGroupIds;
-		std::vector<WiFiManagerParameter> paramGroupMsgs;
-		paramGroupIds.reserve(3);
-		paramGroupMsgs.reserve(3);
-		char groupIdStr[3][48] = {'\0'};
-		char htmlId[6][4] = {'\0'};
+		setupWiFiManager();
+	}
+	else
+	{
+		WiFi.mode(WIFI_STA);
+		int connRes = WiFi.waitForConnectResult();
+	}
 
-		//WiFiManagerParameter id1("g_0", "GroupMe URL", groupIdStr, 48);
-		//WiFiManagerParameter id2("g_1",
-		for (uint8_t i = 0; i < 3; i++)
-		{
-			//Serial.print("Group ID: ");
-			//Serial.println(groupIds[i]);
-			//Serial.print("Group Message: ");
-			//Serial.println(groupMessages[i]);
-			sprintf(groupIdStr[i], "%u", groupIds[i]);
-			sprintf(htmlId[i], "g_%u", i);
-			paramGroupIds.push_back(WiFiManagerParameter(htmlId[i], "GroupMe URL", groupIdStr[i], 48));
-			wifiManager.addParameter(&paramGroupIds[i]);
-			printf("%p: \n", &paramGroupIds[i]);
-			sprintf(htmlId[i + 3], "m_%u", i);
-			paramGroupMsgs.push_back(WiFiManagerParameter(htmlId[i + 3], "Message", groupMessages[i], 141));
-			printf("%p: \n", &paramGroupMsgs[i]);
-			wifiManager.addParameter(&paramGroupMsgs[i]);
-		}
-
-		for (uint8_t i = 0; i < 3; i++)
-		{
-			//wifiManager.addParameter()
-		}
-
-		wifiManager.startConfigPortal();
-		strcpy(groupMeToken, paramGroupToken.getValue());
-
-		for (uint8_t i = 0; i < 3; i++)
-		{
-			strcpy(groupUrl, paramGroupIds[i].getValue());
-			strcpy(groupMessages[i], paramGroupMsgs[i].getValue());
-			Serial.println(groupUrl);
-			Serial.println(groupMessages[i]);
-
-			for (uint8_t j = 0; j < 141; j++)
-			{
-				if ((groupIds[i] = strtol(groupUrl + j, NULL, 10)) ||
-					(groupIds[i] = strtol(groupUrl + j, NULL, 10)))
-				{
-					Serial.println(groupIds[i]);
-					break;
-				}
-			}
-		}
-
-		writeConfigFile();
+	if (WiFi.status() != WL_CONNECTED)
+	{
+		setupWiFiManager();
 	}
 
 	SPIFFS.end();
-	attachInterrupt(digitalPinToInterrupt(0), readPin, CHANGE);
 }
 
 void loop()
 {
+	// Button released
+	if (pinChanged && digitalRead(GPIO_PIN) == HIGH)
+	{
+		pinChanged = false;
+
+		if (clickType != DOUBLE_CLICK && prevStartTime != 0 && startTime -
+				prevStartTime <= CLICK_DELAY)
+		{
+			clickType = DOUBLE_CLICK;
+		}
+		else if (clickType != SINGLE_CLICK && millis() - startTime <= CLICK_DELAY)
+		{
+			clickType = SINGLE_CLICK;
+		}
+
+		delay(5);
+	}
+	// Button pressed
+	else if (!pinChanged && clickType != HOLD_CLICK && digitalRead(GPIO_PIN) == LOW)
+	{
+		pinChanged = true;
+		clickType = HOLD_CLICK;
+		prevStartTime = startTime;
+		startTime = millis();
+	}
 	currentTime = millis();
 
 	// TODO: I could probably combine these if statements into one
@@ -135,8 +113,6 @@ void sendMessage(uint8_t clickType)
 	const uint16_t HTTPS_PORT = 443;
 	char uid[11];
 	char groupIdStr[48] = {'\0'};
-	//char postData[190] = {'\0'};
-	//char request[90] = {'\0'};
 	WiFiClientSecure client;
 
 	if (client.connect(SERVER, HTTPS_PORT))
@@ -146,54 +122,12 @@ void sendMessage(uint8_t clickType)
 			sprintf(groupIdStr, "%u", groupIds[clickType]);
 			sprintf(uid, "%u", random(UINT_MAX));
 			// Length of POST data (I believe):
-			// 11 +
-			// 15 + 10 + 2 +
-			// 8 + 140 + 1 +
-			// 2 + 1
-			//strcpy(postData, "{\"message\":{\"source_guid\":\"");
-			//strcat(postData, uid);
-			//strcat(postData, "\",\"text\":\"");
-			//strcat(postData, groupMessages[clickType]);
-			//strcat(postData, "\"}}");
-			//std::string postData(std::string("{") +
-			//		"\"message\":{" +
-			//		"\"source_guid\":\"" + uid + "\"," +
-			//		"\"text\":\"" + groupMessages[clickType] + "\"" +
-			//		"}" +
-			//		"}");
+			// 11 + 15 + 10 + 2 + 8 + 140 + 1 + 2 + 1
+
 			// Length of request:
 			// 16 + 8 + 16 + 40 + 9 + 1
-			//strcpy(request, "POST /v3/groups/");
-			//strcat(request, groupIdStr);
-			//strcat(request, "/messages?token=");
-			//strcat(request, groupMeToken);
-			//strcat(request, " HTTP/1.1");
-			//std::string request(std::string("POST /v3/groups/") + groupIdStr +
-			//		"/messages?token=" + groupMeToken + " HTTP/1.1");
 
-			//Serial.println(request);
-			//Serial.println(groupMessages[clickType]);
-			//client.println(request);
 			// Send the request
-			Serial.print("POST /v3/groups/");
-			Serial.print(groupIdStr);
-			Serial.print("/messages?token=");
-			Serial.print(groupMeToken);
-			Serial.println(" HTTP/1.1");
-			Serial.println("Host: api.groupme.com");
-			Serial.println("Content-Type: application/json");
-			Serial.print("Content-Length: ");
-			Serial.println(40 + strlen(uid) +
-					strlen(groupMessages[clickType]));
-			Serial.println();
-			Serial.print("{\"message\":{\"source_guid\":\"");
-			Serial.print(uid);
-			Serial.print("\",\"text\":\"");
-			Serial.print(groupMessages[clickType]);
-			Serial.println("\"}}");
-			//client.println(postData);
-			Serial.println();
-
 			client.print("POST /v3/groups/");
 			client.print(groupIdStr);
 			client.print("/messages?token=");
@@ -211,7 +145,6 @@ void sendMessage(uint8_t clickType)
 			client.print("\",\"text\":\"");
 			client.print(groupMessages[clickType]);
 			client.println("\"}}");
-			//client.println(postData);
 			client.println();
 			long timeOut = 4000;
 			long lastTime = millis();
@@ -225,42 +158,10 @@ void sendMessage(uint8_t clickType)
 				}
 			}
 		}
-		else
-		{
-			Serial.println("certificate doesn't match");
-		}
-	}
-	else
-	{
-		Serial.println("Connection Failed");
 	}
 
-	Serial.println();
-	Serial.println("Request Complete!!");
-	ESP.deepSleep(UINT_MAX);
-}
-
-void readPin()
-{
-	// Button up
-	if (digitalRead(0) == HIGH)
-	{
-		if (prevStartTime != 0 && startTime - prevStartTime <= CLICK_DELAY)
-		{
-			clickType = DOUBLE_CLICK;
-		}
-		else if (millis() - startTime <= CLICK_DELAY)
-		{
-			clickType = SINGLE_CLICK;
-		}
-	}
-	// Button down
-	else
-	{
-		clickType = HOLD_CLICK;
-		prevStartTime = startTime;
-		startTime = millis();
-	}
+	// Sleep indefinitely
+	ESP.deepSleep(0);
 }
 
 bool readConfigFile()
@@ -277,7 +178,6 @@ bool readConfigFile()
 
 		if (!root.success())
 		{
-			Serial.println("JSON parseObject() failed");
 			return false;
 		}
 		else
@@ -295,12 +195,9 @@ bool readConfigFile()
 			if (root.containsKey("messages"))
 			{
 				// Must not be possible to get strings in an array
-				//root["messages"].asArray().copyTo(groupMessages);
 				for (uint8_t i = 0; i < 3; i++)
 				{
 					strcpy(groupMessages[i], root["messages"][i]);
-					Serial.println(groupIds[i]);
-					Serial.println(groupMessages[i]);
 				}
 			}
 		}
@@ -314,7 +211,6 @@ bool readConfigFile()
 
 bool writeConfigFile()
 {
-	Serial.println("Saving config file");
 	File f = SPIFFS.open("/token", "w+");
 	StaticJsonBuffer<16 + 3 * (140 + 8)> jsonBuffer;
 	JsonObject &root = jsonBuffer.createObject();
@@ -322,10 +218,8 @@ bool writeConfigFile()
 	root["token"] = groupMeToken;
 	JsonArray &arrIds = root.createNestedArray("ids");
 
-	Serial.println("Write file");
 	for (uint8_t i = 0; i < 3; i++)
 	{
-		Serial.println(groupIds[i]);
 		arrIds.add(groupIds[i]);
 	}
 
@@ -333,7 +227,6 @@ bool writeConfigFile()
 
 	for (uint8_t i = 0; i < 3; i++)
 	{
-		Serial.println(groupMessages[i]);
 		arrMsgs.add(groupMessages[i]);
 	}
 
@@ -344,4 +237,51 @@ bool writeConfigFile()
 		root.prettyPrintTo(Serial);
 		f.close();
 	}
+}
+
+void setupWiFiManager()
+{
+	char groupUrl[48] = {'\0'};
+	WiFiManager wifiManager;
+	// Add the groups ids
+	WiFiManagerParameter paramGroupToken("g_toke", "GroupMe Token", groupMeToken, 41);
+	wifiManager.addParameter(&paramGroupToken);
+	std::vector<WiFiManagerParameter> paramGroupIds;
+	std::vector<WiFiManagerParameter> paramGroupMsgs;
+	paramGroupIds.reserve(3);
+	paramGroupMsgs.reserve(3);
+	char groupIdStr[3][48] = {'\0'};
+	char htmlId[6][4] = {'\0'};
+
+	for (uint8_t i = 0; i < 3; i++)
+	{
+		sprintf(groupIdStr[i], "%u", groupIds[i]);
+		sprintf(htmlId[i], "g_%u", i);
+		paramGroupIds.push_back(WiFiManagerParameter(htmlId[i], "GroupMe URL", groupIdStr[i], 48));
+		wifiManager.addParameter(&paramGroupIds[i]);
+		sprintf(htmlId[i + 3], "m_%u", i);
+		paramGroupMsgs.push_back(WiFiManagerParameter(htmlId[i + 3], "Message", groupMessages[i], 141));
+		wifiManager.addParameter(&paramGroupMsgs[i]);
+	}
+
+	wifiManager.setConfigPortalTimeout(PORTAL_TIMEOUT);
+	wifiManager.startConfigPortal();
+	strcpy(groupMeToken, paramGroupToken.getValue());
+
+	for (uint8_t i = 0; i < 3; i++)
+	{
+		strcpy(groupUrl, paramGroupIds[i].getValue());
+		strcpy(groupMessages[i], paramGroupMsgs[i].getValue());
+
+		for (uint8_t j = 0; j < 141; j++)
+		{
+			if ((groupIds[i] = strtol(groupUrl + j, NULL, 10)) ||
+				(groupIds[i] = strtol(groupUrl + j, NULL, 10)))
+			{
+				break;
+			}
+		}
+	}
+
+	writeConfigFile();
 }
